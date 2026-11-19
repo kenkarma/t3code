@@ -12,7 +12,7 @@ import {
   updateEnvironmentSpeechModelUnloadTimeout,
 } from "@t3tools/client-runtime/voice-input";
 import type { PreparedConnection } from "@t3tools/client-runtime/connection";
-import { openRouterIcon } from "@t3tools/client-runtime/provider-clients";
+import { inworldIcon, openRouterIcon } from "@t3tools/client-runtime/provider-clients";
 import {
   AuthFilesystemReadScope,
   AuthSettingsWriteScope,
@@ -149,6 +149,8 @@ const OFF = "off";
 function CloudSpeechLogo({ provider }: { provider: CloudSpeechProvider }) {
   if (provider === "openrouter")
     return <ProviderPackageIcon icon={openRouterIcon} aria-hidden className="size-4 shrink-0" />;
+  if (provider === "inworld")
+    return <ProviderPackageIcon icon={inworldIcon} aria-hidden className="size-4 shrink-0" />;
   return (
     <ProviderInstanceIcon
       driverKind={ProviderDriverKind.make(provider === "openai" ? "codex" : "grok")}

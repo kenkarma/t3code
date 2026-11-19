@@ -49,7 +49,12 @@ it.effect.each(["openai", "xai"] as const)("sends only to %s using its own saved
     yield* service.setKey(provider === "openai" ? "xai" : "openai", Redacted.make("other"));
     expect((yield* Effect.flip(transcribe()))._tag).toBe("CloudSpeechError");
     yield* service.setKey(provider, Redacted.make("chosen"));
-    expect(yield* service.configured).toEqual({ openai: true, xai: true, openrouter: false });
+    expect(yield* service.configured).toEqual({
+      openai: true,
+      xai: true,
+      openrouter: false,
+      inworld: false,
+    });
     yield* Effect.flip(transcribe(new Uint8Array(3)));
     expect(upstream).not.toHaveBeenCalled();
     expect(yield* transcribe()).toBe("hello");
@@ -93,6 +98,56 @@ it.effect.each(["openai", "xai"] as const)("sends only to %s using its own saved
       reason: "unreadable-key",
     });
     expect(upstream).toHaveBeenCalledTimes(3);
+  }),
+);
+
+it.effect("sends Inworld a Basic-authenticated JSON WAV with vocabulary prompts", () =>
+  Effect.gen(function* () {
+    const upstream = vi.fn<typeof fetch>(async () =>
+      Response.json({ transcription: { transcript: " hello T3 Code " } }),
+    );
+    const service = yield* CloudSpeech.CloudSpeech.pipe(
+      Effect.provide(
+        CloudSpeech.layer.pipe(
+          Layer.provide(FetchHttpClient.layer),
+          Layer.provide(ServerSettings.ServerSettingsService.layerTest()),
+          Layer.provide(Layer.mock(SecretResolver.SecretResolver)({})),
+        ),
+      ),
+    );
+    const transcribe = () =>
+      service
+        .transcribe("inworld", new Uint8Array(new Float32Array([0, 0.5]).buffer), {
+          ...DEFAULT_SPEECH_TRANSCRIPTION_OPTIONS,
+          speechLanguage: "en",
+          speechCustomWords: [{ term: "T3 Code", aliases: [] }],
+        })
+        .pipe(Effect.provideService(FetchHttpClient.Fetch, upstream));
+    expect(yield* Effect.flip(transcribe())).toMatchObject({
+      provider: "inworld",
+      reason: "missing-key",
+    });
+    yield* service.setKey("inworld", Redacted.make("aW53b3JsZDprZXk="));
+    expect((yield* service.configured).inworld).toBe(true);
+    expect(yield* transcribe()).toBe("hello T3 Code");
+    const [url, init] = upstream.mock.calls[0]!;
+    expect(String(url)).toBe("https://api.inworld.ai/stt/v1/transcribe");
+    expect(init?.redirect).toBe("error");
+    expect(new Headers(init?.headers).get("authorization")).toBe("Basic aW53b3JsZDprZXk=");
+    const body = JSON.parse(new TextDecoder().decode(init?.body as Uint8Array));
+    expect(body.transcribeConfig).toEqual({
+      modelId: "inworld/inworld-stt-1",
+      audioEncoding: "AUTO_DETECT",
+      language: "en",
+      prompts: ["T3 Code"],
+    });
+    const wav = new DataView(Uint8Array.from(Buffer.from(body.audioData.content, "base64")).buffer);
+    expect(wav.getUint32(24, true)).toBe(16_000);
+    upstream.mockResolvedValueOnce(new Response("denied", { status: 401 }));
+    expect(yield* Effect.flip(transcribe())).toMatchObject({
+      provider: "inworld",
+      reason: "rejected-key",
+    });
   }),
 );
 

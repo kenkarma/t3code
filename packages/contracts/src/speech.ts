@@ -8,23 +8,26 @@ export const CloudSpeechApiKey = TrimmedNonEmptyString.check(
   Schema.isPattern(/^(?![a-z][a-z\d+.-]*:\/\/)[!-~]+$/i),
 );
 
-export const CloudSpeechProvider = Schema.Literals(["openai", "xai", "openrouter"]);
+export const CloudSpeechProvider = Schema.Literals(["openai", "xai", "openrouter", "inworld"]);
 export type CloudSpeechProvider = typeof CloudSpeechProvider.Type;
 export const CLOUD_SPEECH_LABELS = {
   openai: "OpenAI",
   xai: "Grok Voice Transcribe",
   openrouter: "OpenRouter",
+  inworld: "Inworld STT",
 } as const;
 export const CLOUD_SPEECH_PROVIDER_NAMES = {
   openai: "OpenAI",
   xai: "xAI",
   openrouter: "OpenRouter",
+  inworld: "Inworld",
 } as const;
-/** Servers that predate OpenRouter report only the first two providers. */
+/** Servers that predate OpenRouter or Inworld omit those providers. */
 export const CloudSpeechKeys = Schema.Struct({
   openai: Schema.Boolean,
   xai: Schema.Boolean,
   openrouter: Schema.optionalKey(Schema.Boolean),
+  inworld: Schema.optionalKey(Schema.Boolean),
 });
 export type CloudSpeechKeys = typeof CloudSpeechKeys.Type;
 
