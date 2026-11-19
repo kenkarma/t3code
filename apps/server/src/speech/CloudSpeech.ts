@@ -31,12 +31,16 @@ const endpoints = {
   openai: { url: "https://api.openai.com/v1/audio/transcriptions", model: "gpt-transcribe" },
   xai: { url: "https://api.x.ai/v1/stt", model: "grok-voice-transcribe-2.0" },
   openrouter: { url: "https://openrouter.ai/api/v1/audio/transcriptions" },
+  inworld: { url: "https://api.inworld.ai/stt/v1/transcribe", model: "inworld/inworld-stt-1" },
 };
 const OPENROUTER_CATALOG_URL =
   "https://openrouter.ai/api/v1/models?output_modalities=transcription&zdr=true";
 const isApiKey = Schema.is(CloudSpeechApiKey);
 const isModelId = Schema.is(CloudSpeechModelId);
 const sameCredential = Schema.toEquivalence(SettingsSecretValue);
+const InworldTranscription = Schema.Struct({
+  transcription: Schema.Struct({ transcript: Schema.String }),
+});
 const OpenRouterCatalog = Schema.Struct({
   data: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.optionalKey(Schema.String) })),
 });
@@ -101,6 +105,19 @@ function openRouterBody(model: string, audio: ArrayBuffer, language: string) {
   });
 }
 
+function inworldBody(audio: ArrayBuffer, language: string, options: SpeechTranscriptionOptions) {
+  const prompts = options.speechCustomWords.map(({ term }) => term);
+  return HttpClientRequest.bodyJsonUnsafe({
+    transcribeConfig: {
+      modelId: endpoints.inworld.model,
+      audioEncoding: "AUTO_DETECT",
+      ...(language !== "auto" ? { language } : {}),
+      ...(prompts.length > 0 ? { prompts } : {}),
+    },
+    audioData: { content: Buffer.from(audio).toString("base64") },
+  });
+}
+
 export class CloudSpeech extends Context.Service<
   CloudSpeech,
   {
@@ -130,10 +147,11 @@ export const layer = Layer.effect(
       Effect.map((value) => value.cloudSpeechCredentials),
     );
     const configured = credentials.pipe(
-      Effect.map(({ openai, xai, openrouter }) => ({
+      Effect.map(({ openai, xai, openrouter, inworld }) => ({
         openai: Boolean(openai),
         xai: Boolean(xai),
         openrouter: Boolean(openrouter),
+        inworld: Boolean(inworld),
       })),
     );
     const execute = (request: HttpClientRequest.HttpClientRequest) =>
@@ -209,10 +227,15 @@ export const layer = Layer.effect(
         if (!isApiKey(key)) return yield* unreadable();
         const audio = wave(samples);
         const request = HttpClientRequest.post(endpoints[provider].url).pipe(
-          HttpClientRequest.bearerToken(Redacted.make(key)),
+          // Inworld issues a ready-made Basic credential (base64 of key:secret).
+          provider === "inworld"
+            ? HttpClientRequest.setHeader("authorization", `Basic ${key}`)
+            : HttpClientRequest.bearerToken(Redacted.make(key)),
           provider === "openrouter"
             ? openRouterBody(model!, audio, language)
-            : audioBody(provider, audio, language, options),
+            : provider === "inworld"
+              ? inworldBody(audio, language, options)
+              : audioBody(provider, audio, language, options),
         );
         const unavailable = () => new CloudSpeechError({ provider, reason: "unavailable" });
         // A catalog fetch or vault lookup may have outlived the credential it started with.
@@ -235,9 +258,14 @@ export const layer = Layer.effect(
                     ? "model-unavailable"
                     : "unavailable",
           });
-        const { text } = yield* HttpClientResponse.schemaBodyJson(
-          EnvironmentSpeechTranscriptionResult,
-        )(response).pipe(Effect.mapError(unavailable));
+        const text =
+          provider === "inworld"
+            ? (yield* HttpClientResponse.schemaBodyJson(InworldTranscription)(response).pipe(
+                Effect.mapError(unavailable),
+              )).transcription.transcript
+            : (yield* HttpClientResponse.schemaBodyJson(EnvironmentSpeechTranscriptionResult)(
+                response,
+              ).pipe(Effect.mapError(unavailable))).text;
         const corrected = applySpeechAliases(text, options.speechCustomWords);
         return (
           options.speechRemoveFillerWords

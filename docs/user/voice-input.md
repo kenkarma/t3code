@@ -24,8 +24,9 @@ Set it back to **Off** at any time; a recording in progress is discarded.
 If the chosen environment goes offline, voice input waits for it. T3 Code never
 substitutes another environment.
 
-For cloud dictation, choose **OpenAI** or **Grok Voice Transcribe** via the environment
-you want to use. If it needs a key, enter one and choose **Save and enable**.
+For cloud dictation, choose **OpenAI**, **Grok Voice Transcribe**, or **Inworld STT** via the
+environment you want to use. Inworld expects the Base64 API key from its
+portal, sent as Basic authorization. If it needs a key, enter one and choose **Save and enable**.
 You can also choose a [secret provider](secrets.md) instead of **Value** and enter a
 reference. Unlock the vault on that environment before dictating. Anyone with
 dictation access to the environment can use the key, but only this device opts in.
